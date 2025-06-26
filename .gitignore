@@ -1,0 +1,53 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# PyCharm project files
+.idea/
+*.iml
+
+# PyCharm-specific (optional, depending on preferences)
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries
+.idea/shelf/
+
+# VSCode (optional if you're switching editors)
+.vscode/
+
+# Logs and local env
+logs/
+*.log
+.env
+*.env
+
+# Test coverage
+.coverage
+.tox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints
+
+# Data
+*.sqlite3
+*.db
+*.csv
+*.tsv
+*.parquet
+
+# OS files
+.DS_Store
+Thumbs.db
