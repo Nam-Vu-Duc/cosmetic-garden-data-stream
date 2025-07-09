@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -53,7 +51,7 @@ services:
 
   kafka-tools:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: ecommerce_zookeeper_kafka
+    container_name: ecommerce_kafka
     depends_on:
       broker:
         condition: service_healthy
@@ -63,25 +61,67 @@ services:
       - kafka-net
 
   flink-jobmanager:
-    image: flink:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.flink-python
     container_name: ecommerce_flink_job
-    hostname: jobmanager
     ports:
       - "8081:8081"
-    command: jobmanager
     environment:
-      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    command: jobmanager
     networks:
       - kafka-net
+    volumes:
+      - ./jars:/opt/flink/lib
 
   flink-taskmanager:
-    image: flink:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.flink-python
     container_name: ecommerce_flink_task
     depends_on:
       - flink-jobmanager
-    command: taskmanager
     environment:
-      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    command: taskmanager
+    networks:
+      - kafka-net
+    volumes:
+      - ./jars:/opt/flink/lib
+
+  minio:
+    image: minio/minio:latest
+    container_name: ecommerce_minio
+    ports:
+      - "9000:9000"    # S3-compatible API
+      - "9001:9001"    # Admin console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - kafka-net
+
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb local/ecommerce;
+      mc policy set public local/ecommerce;
+      exit 0;
+      "
     networks:
       - kafka-net
 
@@ -107,6 +147,7 @@ services:
 
 volumes:
   postgres-db-volume:
+  minio-data:
 
 networks:
   kafka-net:

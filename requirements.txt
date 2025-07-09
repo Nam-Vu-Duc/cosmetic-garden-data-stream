@@ -1,1 +1,6 @@
-confluent-kafka~=2.10.1
+confluent-kafka
+apache-flink
+boto3
+pymongo
+dotenv
+python-dotenv
