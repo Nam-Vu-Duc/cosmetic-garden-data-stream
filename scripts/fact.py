@@ -26,14 +26,10 @@ topics = [
 admin_client = AdminClient({'bootstrap.servers': 'localhost:9092'})
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'my-consumer-group15',
+    'group.id': 'consumer-fact-group1',
     'auto.offset.reset': 'earliest'
 })
 consumer.subscribe(topics)
-
-# flink
-env_settings = EnvironmentSettings.in_streaming_mode()
-t_env = TableEnvironment.create(env_settings)
 
 # minIO
 bucket_name = 'ecommerce'
@@ -67,47 +63,9 @@ def streaming_data() -> None:
         except Exception as e:
             print(f"{topic} already start !!!")
 
-def detecting_fraud() -> None:
-    try:
-        # Define a Kafka source table
-        t_env.execute_sql("""
-            CREATE TABLE kafka_input (
-                `user_id` STRING,
-                `timestamp` STRING,
-                `category` STRING
-            ) WITH (
-                'connector' = 'kafka',
-                'topic' = 'page-view',
-                'properties.bootstrap.servers' = 'broker:29092',
-                'properties.group.id' = 'my-group',
-                'scan.startup.mode' = 'earliest-offset',
-                'format' = 'json'
-            )
-        """)
-
-        # Define a print sink table
-        t_env.execute_sql("""
-            CREATE TABLE print_sink (
-                `user_id` STRING,
-                `timestamp` STRING,
-                `category` STRING
-            ) WITH (
-                'connector' = 'print'
-            )
-        """)
-
-        # Start streaming: Kafka → print
-        print("Flink job started: streaming from Kafka topic `page-view`...")
-        t_env.execute_sql("""
-            INSERT INTO print_sink
-            SELECT * FROM kafka_input
-        """)
-
-    except Exception as e:
-        print(f"Error: {e}")
-
 def storing_data_lake() -> None:
     try:
+        streaming_data()
         while True:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
@@ -137,8 +95,9 @@ def storing_data_lake() -> None:
                 ContentType='application/json'
             )
 
-            print('Received message: {}'.format(msg.value().decode('utf-8')))
-            print(f"Uploaded {object_key} to bucket '{bucket_name}'")
+            print('\n')
+            print('1. Received message: {}'.format(msg.value().decode('utf-8')))
+            print(f"2. Uploaded {object_key} to bucket '{bucket_name}'")
 
             storing_data_warehouse(object_key)
 
@@ -180,7 +139,7 @@ def storing_data_warehouse(object_key) -> None:
                 FROM data_warehouse.dim_users
                 WHERE id = %s AND is_current = TRUE
             """, (
-                data['user_id'], data['page_type'], data['timestamp'], data['user_id'], date_key
+                data['user_id'], data['page_type'], data['timestamp'], date_key, data['user_id']
             ))
             conn.commit()
 
@@ -192,7 +151,7 @@ def storing_data_warehouse(object_key) -> None:
                 WHERE u.id = %s AND u.is_current = TRUE
                   AND p.id = %s AND p.is_current = TRUE
             """, (
-                data['user_id'], data['product_id'], data['timestamp'], data['user_id'], data['product_id'], date_key
+                data['user_id'], data['product_id'], data['timestamp'], date_key, data['user_id'], data['product_id'],
             ))
             conn.commit()
 
@@ -204,7 +163,7 @@ def storing_data_warehouse(object_key) -> None:
                 WHERE u.id = %s AND u.is_current = TRUE
                   AND b.id = %s AND b.is_current = TRUE
             """, (
-                data['user_id'], data['brand_id'], data['timestamp'], data['user_id'], data['brand_id'], date_key
+                data['user_id'], data['brand_id'], data['timestamp'], date_key, data['user_id'], data['brand_id']
             ))
             conn.commit()
 
@@ -216,7 +175,7 @@ def storing_data_warehouse(object_key) -> None:
                 WHERE u.id = %s AND u.is_current = TRUE
                   AND o.id = %s AND o.is_current = TRUE
             """, (
-                data['user_id'], data['order_id'], data['timestamp'], data['user_id'], data['order_id'], date_key
+                data['user_id'], data['order_id'], data['timestamp'], date_key, data['user_id'], data['order_id']
             ))
             conn.commit()
 
@@ -228,7 +187,7 @@ def storing_data_warehouse(object_key) -> None:
                 WHERE u.id = %s AND u.is_current = TRUE
                   AND p.id = %s AND p.is_current = TRUE
             """, (
-                data['user_id'], data['product_id'], data['update_type'], data['timestamp'], data['user_id'], data['product_id'], date_key
+                data['user_id'], data['product_id'], data['update_type'], data['timestamp'], date_key, data['user_id'], data['product_id']
             ))
             conn.commit()
 
@@ -239,10 +198,11 @@ def storing_data_warehouse(object_key) -> None:
                 FROM data_warehouse.dim_users u
                 WHERE u.id = %s AND u.is_current = TRUE
             """, (
-                data['user_id'], data['update_type'],  data['timestamp'], data['user_id'], date_key
+                data['user_id'], data['update_type'],  data['timestamp'], date_key, data['user_id']
             ))
             conn.commit()
 
+        print('3. Save record to postgres successfully !!!')
         cur.close()
     except Exception as e:
         print(e)
