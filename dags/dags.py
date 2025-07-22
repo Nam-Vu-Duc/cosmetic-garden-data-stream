@@ -2,10 +2,10 @@ import sys
 sys.path.append('/opt/airflow')
 from datetime import timedelta, datetime
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from scripts.fact import streaming_data, storing_data_lake, storing_data_warehouse
-from scripts.dim import streaming_data, insert_new_record, de_active_current_record, storing_data_warehouse
-from scripts.fraud import detecting_fraud, send_email
+from airflow.providers.standard.operators.python import PythonOperator
+from scripts.fact_stream_data import stream_fact_tables
+from scripts.dim_stream_data import stream_dim_tables
+from scripts.detect_fraud import detect_fraud
 
 default_args = {
     'owner': 'namvu',
@@ -21,20 +21,17 @@ with (DAG(
     # schedule_interval='@daily'
 ) as dag):
 
-    storing_data_lake = PythonOperator(
+    stream_fact_tables = PythonOperator(
         task_id='initial_requirements',
-        python_callable=storing_data_lake,
+        python_callable=stream_fact_tables,
     )
 
-    storing_data_warehouse = PythonOperator(
+    stream_dim_tables = PythonOperator(
         task_id='initial_requirements',
-        python_callable=storing_data_warehouse,
+        python_callable=stream_dim_tables,
     )
 
-    detecting_fraud = PythonOperator(
+    detect_fraud = PythonOperator(
         task_id='initial_requirements',
-        python_callable=detecting_fraud,
+        python_callable=detect_fraud,
     )
-
-    stream1 = storing_data_lake
-    stream2 = detecting_fraud
