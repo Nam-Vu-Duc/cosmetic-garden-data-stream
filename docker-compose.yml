@@ -9,13 +9,14 @@ x-airflow-common:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:admin@postgres/admin
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://admin:admin@postgres/admin
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    AIRFLOW_EXTRAS: "celery, postgres"
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -102,40 +103,31 @@ services:
     networks:
       - kafka-net
 
-  flink-jobmanager:
-    build:
-      context: .
-      dockerfile: Dockerfile.flink-python
-    container_name: ecommerce_flink_job
+  jobmanager:
+    image: flink-kafka
     ports:
       - "8081:8081"
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
     command: jobmanager
-    networks:
-      - kafka-net
-    volumes:
-      - ./jars:/opt/flink/lib
-
-  flink-taskmanager:
-    build:
-      context: .
-      dockerfile: Dockerfile.flink-python
-    container_name: ecommerce_flink_task
-    depends_on:
-      - flink-jobmanager
     environment:
       - |
         FLINK_PROPERTIES=
-        jobmanager.rpc.address: flink-jobmanager
-        taskmanager.numberOfTaskSlots: 2
-    command: taskmanager
+        jobmanager.rpc.address: jobmanager
     networks:
       - kafka-net
-    volumes:
-      - ./jars:/opt/flink/lib
+
+  taskmanager:
+    image: flink-kafka
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    scale: 1
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    networks:
+      - kafka-net
 
   minio:
     image: minio/minio:latest
@@ -395,6 +387,9 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
+  # You can enable flower by adding "--profile flower" option e.g. docker-compose --profile flower up
+  # or by explicitly targeted on the command line e.g. docker-compose up flower.
+  # See: https://docs.docker.com/compose/profiles/
   flower:
     <<: *airflow-common
     command: celery flower
@@ -421,3 +416,4 @@ volumes:
 networks:
   kafka-net:
     driver: bridge
+    external: true
