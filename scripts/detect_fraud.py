@@ -7,11 +7,15 @@ from dotenv import load_dotenv
 import json
 from confluent_kafka import Consumer, KafkaException
 from confluent_kafka.admin import AdminClient, NewTopic
-from pyflink.common import WatermarkStrategy, Encoder, Types
+from pyflink.common import WatermarkStrategy, Encoder, Types, Duration
 from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
+from pyflink.datastream.window import SlidingEventTimeWindows
 from pyflink.datastream.connectors.file_system import FileSource, StreamFormat, FileSink, OutputFileConfig, RollingPolicy
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
 from pyflink.common.serialization import SimpleStringSchema
+from pyflink.common.serialization import DeserializationSchema
+from pyflink.datastream.window import TumblingEventTimeWindows
+from pyflink.common.time import Time
 from pyflink.table import EnvironmentSettings, TableEnvironment, TableDescriptor
 from pyflink.table.types import DataTypes
 from pyflink.table.schema import Schema
@@ -26,80 +30,93 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 load_dotenv()
 
-word_count_data = ["To be, or not to be,--that is the question:--",
-                   "Whether 'tis nobler in the mind to suffer",
-                   "The slings and arrows of outrageous fortune",
-                   "Or to take arms against a sea of troubles,",
-                   "And by opposing end them?--To die,--to sleep,--",
-                   "No more; and by a sleep to say we end",
-                   "The heartache, and the thousand natural shocks",
-                   "That flesh is heir to,--'tis a consummation",
-                   "Devoutly to be wish'd. To die,--to sleep;--",
-                   "To sleep! perchance to dream:--ay, there's the rub;",
-                   "For in that sleep of death what dreams may come,",
-                   "When we have shuffled off this mortal coil,",
-                   "Must give us pause: there's the respect",
-                   "That makes calamity of so long life;",
-                   "For who would bear the whips and scorns of time,",
-                   "The oppressor's wrong, the proud man's contumely,",
-                   "The pangs of despis'd love, the law's delay,",
-                   "The insolence of office, and the spurns",
-                   "That patient merit of the unworthy takes,",
-                   "When he himself might his quietus make",
-                   "With a bare bodkin? who would these fardels bear,",
-                   "To grunt and sweat under a weary life,",
-                   "But that the dread of something after death,--",
-                   "The undiscover'd country, from whose bourn",
-                   "No traveller returns,--puzzles the will,",
-                   "And makes us rather bear those ills we have",
-                   "Than fly to others that we know not of?",
-                   "Thus conscience does make cowards of us all;",
-                   "And thus the native hue of resolution",
-                   "Is sicklied o'er with the pale cast of thought;",
-                   "And enterprises of great pith and moment,",
-                   "With this regard, their currents turn awry,",
-                   "And lose the name of action.--Soft you now!",
-                   "The fair Ophelia!--Nymph, in thy orisons",
-                   "Be all my sins remember'd."]
+def write_to_file() -> None:
+    topics = [
+        # 'page-view',
+        # 'product-view',
+        # 'brand-view',
+        # 'purchase',
+        # 'cart-update',
+        'auth-update',
+    ]
+    admin_client = AdminClient({'bootstrap.servers': 'localhost:9092'})
+    consumer = Consumer({
+        'bootstrap.servers': 'localhost:9092',
+        'group.id': 'consumer-flink-2',
+        'auto.offset.reset': 'earliest'
+    })
+    consumer.subscribe(topics)
 
-def detect_fraud() -> None:
-    try:
-        # flink
-        env = StreamExecutionEnvironment.get_execution_environment()
-        env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
-        env.set_parallelism(1)
-        env.add_jars(
-            "file:///C:/Users/admin/PycharmProjects/cosmetic-garden-data-stream/jars/flink-connector-kafka-4.0.0-2.0.jar",
-            "file:///C:/Users/admin/PycharmProjects/cosmetic-garden-data-stream/jars/kafka-clients-3.7.0.jar"
-        )
+    file = open("events.json", "a")
 
-        # Create Kafka Source
-        kafka_source = KafkaSource.builder() \
-            .set_bootstrap_servers("broker:29092") \
-            .set_topics("page-view") \
-            .set_group_id("flink-consumer-group1") \
-            .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
-            .set_value_only_deserializer(SimpleStringSchema()) \
-            .build()
+    while True:
+        msg = consumer.poll(timeout=1.0)
+        if msg is None:
+            continue
+        if msg.error():
+            print("Consumer error: {}".format(msg.error()))
+            continue
 
-        # Read from Kafka as DataStream
-        ds = env.from_source(
-            source=kafka_source,
-            watermark_strategy=WatermarkStrategy.no_watermarks(),
-            source_name="Kafka Source"
-        )
+        event = json.loads(msg.value().decode('utf-8'))
+        json.dump(event, file)
+        file.write('\n')
+        print(f"Logged event: {event}")
 
-        # Just a basic map & print example
-        processed = ds.map(lambda x: x.upper(), output_type=Types.STRING())
+        read_from_file()
 
-        # Sink - print to console
-        processed.print()
+        return
 
-        # Execute
-        env.execute()
+def read_from_file() -> None:
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
+    # write all the data to one file
+    env.set_parallelism(1)
 
-    except Exception as e:
-        print(f"Error: {e}")
+    # Read the file as stream of strings
+    source = FileSource \
+        .for_record_stream_format(StreamFormat.text_line_format(),"events.json") \
+        .process_static_file_set() \
+        .build()
+
+    def extract_event_timestamp(event_str):
+        try:
+            event = json.loads(event_str)
+            dt = datetime.strptime(event["timestamp"], "%Y-%m-%dT%H:%M:%S.%fZ")
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return 0
+
+    watermark_strategy = WatermarkStrategy \
+        .for_bounded_out_of_orderness(Duration.of_seconds(5)) \
+        .with_timestamp_assigner(lambda e, ts: extract_event_timestamp(e))
+
+    ds = env.from_source(
+        source=source,
+        watermark_strategy=watermark_strategy,
+        source_name="file_source"
+    )
+
+    def parse_event(line):
+        event = json.loads(line)
+        return (event["user_id"], 1)
+
+    parsed_stream = ds.map(parse_event, output_type=Types.TUPLE([Types.STRING(), Types.INT()]))
+
+    ds = ds.key_by(lambda e: e["user_id"], key_type=Types.STRING())
+
+    result = parsed_stream \
+        .key_by(lambda x: x[0]) \
+        .window(SlidingEventTimeWindows.of(
+        Duration.of_minutes(5),
+        Duration.of_minutes(1))) \
+        .sum(1) \
+        .filter(lambda x: x[1] > 3)
+
+    # --- Output (for debug purposes only) ---
+    result.print()
+
+    env.execute("Fraud Detection Job")
+    return
 
 def send_email(customer_info):
     try:
@@ -133,55 +150,22 @@ def send_email(customer_info):
     except Exception as e:
         print(e)
 
-def word_count(input_path, output_path):
-    env = StreamExecutionEnvironment.get_execution_environment()
-    env.set_runtime_mode(RuntimeExecutionMode.BATCH)
-    # write all the data to one file
-    env.set_parallelism(1)
-
-    # define the source
-    if input_path is not None:
+def detect_fraud() -> None:
+    try:
+        # define the source
         ds = env.from_source(
             source=FileSource.for_record_stream_format(StreamFormat.text_line_format(),
                                                        input_path)
-                             .process_static_file_set().build(),
+            .process_static_file_set().build(),
             watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
             source_name="file_source"
         )
-    else:
         print("Executing word_count example with default input data set.")
         print("Use --input to specify file input.")
         ds = env.from_collection(word_count_data)
 
-    def split(line):
-        yield from line.split()
-
-    # compute word count
-    ds = ds.flat_map(split) \
-        .map(lambda i: (i, 1), output_type=Types.TUPLE([Types.STRING(), Types.INT()])) \
-        .key_by(lambda i: i[0]) \
-        .reduce(lambda i, j: (i[0], i[1] + j[1]))
-
-    # define the sink
-    if output_path is not None:
-        ds.sink_to(
-            sink=FileSink.for_row_format(
-                base_path=output_path,
-                encoder=Encoder.simple_string_encoder())
-            .with_output_file_config(
-                OutputFileConfig.builder()
-                .with_part_prefix("prefix")
-                .with_part_suffix(".ext")
-                .build())
-            .with_rolling_policy(RollingPolicy.default_rolling_policy())
-            .build()
-        )
-    else:
-        print("Printing result to stdout. Use --output to specify output path.")
-        ds.print()
-
-    # submit for execution
-    env.execute()
+    except KeyboardInterrupt:
+        pass
 
 if __name__ == '__main__':
-    detect_fraud()
+    read_from_file()
