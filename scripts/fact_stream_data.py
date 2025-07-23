@@ -206,4 +206,4 @@ def storing_data_warehouse(object_key) -> None:
         print(e)
 
 if __name__ == '__main__':
-    fact_stream_data()
+    fact_create_topics()
