@@ -1,16 +1,11 @@
-import psycopg2
-import pymongo
-import os
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from bson.objectid import ObjectId
-import boto3
 import json
-from confluent_kafka import Consumer, KafkaException
-from confluent_kafka.admin import AdminClient, NewTopic
-from pyflink.table import EnvironmentSettings, TableEnvironment
-from json import loads
 from datetime import datetime
+import boto3
+import psycopg2
+from confluent_kafka import Consumer
+from confluent_kafka.admin import AdminClient, NewTopic
+from dotenv import load_dotenv
+
 load_dotenv()
 
 # kafka
@@ -25,7 +20,7 @@ topics = [
 admin_client = AdminClient({'bootstrap.servers': 'localhost:9092'})
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'consumer-fact-group1',
+    'group.id': 'fact-group1',
     'auto.offset.reset': 'earliest'
 })
 consumer.subscribe(topics)
@@ -78,12 +73,12 @@ def fact_stream_data() -> None:
 
             # Get topic, user_id, timestamp
             topic = msg.topic()
-            user_id = data.get('user_id', 'unknown')
-            timestamp = data.get('timestamp', 'unknown')
-            timestamp = timestamp.replace(':', '-')
+            user_id   = data['user_id']
+            timestamp = data['timestamp'].replace(':', '-')
+            date_key = timestamp.split('T')[0]
 
             # Generate object key
-            object_key = f"{topic}/{user_id}_{timestamp}.json"
+            object_key = f"fact/{date_key}/{topic}/{user_id}_{timestamp}.json"
 
             # Upload to MinIO
             s3.put_object(
@@ -95,20 +90,17 @@ def fact_stream_data() -> None:
 
             print('\n')
             print('1. Received message: {}'.format(msg.value().decode('utf-8')))
-            print(f"2. Uploaded {object_key} to bucket '{bucket_name}'")
+            print(f"2. Uploaded {object_key} to minIO")
 
-            storing_data_warehouse(object_key)
+            storing_data_warehouse(topic, data)
 
     except KeyboardInterrupt:
         pass
     finally:
         consumer.close()
 
-def storing_data_warehouse(object_key) -> None:
+def storing_data_warehouse(topic, data) -> None:
     try:
-        # get data from minIO
-        response = s3.get_object(Bucket=bucket_name, Key=object_key)
-        data = json.loads(response['Body'].read())
         dt = datetime.strptime(data['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
         date_key = int(dt.strftime("%Y%m%d"))
 
@@ -125,9 +117,6 @@ def storing_data_warehouse(object_key) -> None:
             dt.strftime("%A")
         ))
         conn.commit()
-
-        # get topic from object_key
-        topic = object_key.split('/')[0]
 
         # insert into fact tables
         if topic == 'page-view':
@@ -200,7 +189,7 @@ def storing_data_warehouse(object_key) -> None:
             ))
             conn.commit()
 
-        print('3. Save record to postgres successfully !!!')
+        print('3. Uploaded to postgres')
         cur.close()
     except Exception as e:
         print(e)

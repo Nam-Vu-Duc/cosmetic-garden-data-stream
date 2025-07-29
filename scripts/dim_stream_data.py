@@ -1,14 +1,12 @@
+import json
+import os
+import boto3
 import psycopg2
 import pymongo
-import os
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from bson.objectid import ObjectId
-import boto3
-import json
-from confluent_kafka import Consumer, KafkaException
+from confluent_kafka import Consumer
 from confluent_kafka.admin import AdminClient, NewTopic
-from json import loads
+from dotenv import load_dotenv
+
 load_dotenv()
 
 # kafka
@@ -20,10 +18,19 @@ topics = [
 admin_client = AdminClient({'bootstrap.servers': 'localhost:9092'})
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'consumer-dim-group1',
+    'group.id': 'dim-group1',
     'auto.offset.reset': 'earliest'
 })
 consumer.subscribe(topics)
+
+# minIO
+bucket_name = 'ecommerce'
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://localhost:9000',
+    aws_access_key_id='minioadmin',
+    aws_secret_access_key='minioadmin'
+)
 
 # postgres
 conn = psycopg2.connect(
@@ -96,7 +103,7 @@ def de_active_current_record(topic_type: str, data: dict) -> None:
             conn.commit()
             return
 
-        print(f'2. De active current {topic_type} record successfully')
+        print(f'3. Deactivated current {topic_type} record')
 
         return None
     except Exception as e:
@@ -252,7 +259,7 @@ def insert_new_record(topic_type: str, data: dict) -> None:
             """, (new_order_sk, str(data['_id'])))
             conn.commit()
 
-        print(f'2. Insert new {topic_type} record successfully')
+        print(f'3. Inserted new {topic_type} record')
 
         return None
     except Exception as e:
@@ -274,11 +281,26 @@ def dim_stream_data() -> None:
 
             # Get topic, user_id, timestamp
             topic = msg.topic()
-            topic_type = data['topic_type']
-            body = data['body']
+            topic_type  = data['topic_type']
+            emp_id      = data['emp_id']
+            body        = data['body']
+            timestamp = body['timestamp'].replace(':', '-')
+            date_key  = timestamp.split('T')[0]
+
+            # Generate object key
+            object_key = f"dim/{date_key}/{topic}/{emp_id}_{timestamp}.json"
+
+            # Upload to MinIO
+            s3.put_object(
+                Bucket=bucket_name,
+                Key=object_key,
+                Body=msg_str.encode('utf-8'),
+                ContentType='application/json'
+            )
 
             print('\n')
-            print(f'1. Received message {topic}: {topic_type}')
+            print('1. Received message {topic}: {topic_type}')
+            print(f"2. Uploaded {object_key} to minIO")
 
             if topic == 'create':
                 insert_new_record(topic_type, body)
