@@ -92,28 +92,30 @@ def fact_stream_data() -> None:
             print('1. Received message: {}'.format(msg.value().decode('utf-8')))
             print(f"2. Uploaded {object_key} to minIO")
 
-            storing_data_warehouse(topic, data)
+            insert_new_record(topic, data)
 
     except KeyboardInterrupt:
         pass
     finally:
         consumer.close()
 
-def storing_data_warehouse(topic, data) -> None:
+def insert_new_record(topic, data) -> None:
     try:
         dt = datetime.strptime(data['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
         date_key = int(dt.strftime("%Y%m%d"))
 
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO data_warehouse.dim_date (date_key, year, quarter, month, day, weekday)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO data_warehouse.dim_date (date_key, date, year, quarter, month, day, weekday)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (date_key) DO NOTHING;
         """, (
             date_key,
+            dt.date(),
             dt.year,
             (dt.month - 1) // 3 + 1,
-            dt.month, dt.day,
+            dt.month,
+            dt.day,
             dt.strftime("%A")
         ))
         conn.commit()
