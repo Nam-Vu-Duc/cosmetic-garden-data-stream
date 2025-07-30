@@ -42,13 +42,14 @@ conn = psycopg2.connect(
 )
 
 # mongoDB
-url = os.getenv('MONGO_DB')
-connect = pymongo.MongoClient(url)
-db = connect['bunnyStore_database']
-users = db['users']
+url      = os.getenv('MONGO_DB')
+connect  = pymongo.MongoClient(url)
+db_name  = os.getenv('DATABASE')
+db       = connect[db_name]
+users    = db['users']
 products = db['products']
-brands = db['brands']
-orders = db['orders']
+brands   = db['brands']
+orders   = db['orders']
 
 def dim_create_topics() -> None:
     new_topics = [NewTopic(topic, num_partitions=1, replication_factor=1) for topic in topics]
@@ -63,6 +64,56 @@ def dim_create_topics() -> None:
             print(f"{topic} begin to start !!!")
         except Exception as e:
             print(f"{topic} already start !!!")
+
+def dim_stream_data() -> None:
+    try:
+        while True:
+            msg = consumer.poll(timeout=1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                print("Consumer error: {}".format(msg.error()))
+                continue
+
+            # Decode message
+            msg_str = msg.value().decode('utf-8')
+            data = json.loads(msg_str)
+
+            # Get topic, user_id, timestamp
+            topic = msg.topic()
+            topic_type  = data['topic_type']
+            emp_id      = data['emp_id']
+            body        = data['body']
+            timestamp = body['timestamp'].replace(':', '-')
+            date_key  = timestamp.split('T')[0]
+
+            # Generate object key
+            object_key = f"dim/{date_key}/{topic}/{emp_id}_{timestamp}.json"
+
+            # Upload to MinIO
+            s3.put_object(
+                Bucket=bucket_name,
+                Key=object_key,
+                Body=msg_str.encode('utf-8'),
+                ContentType='application/json'
+            )
+
+            print('\n')
+            print('1. Received message {topic}: {topic_type}')
+            print(f"2. Uploaded {object_key} to minIO")
+
+            if topic == 'create':
+                insert_new_record(topic_type, body)
+
+            if topic == 'update':
+                de_active_current_record(topic_type, body)
+                insert_new_record(topic_type, body)
+
+            if topic == 'delete':
+                de_active_current_record(topic_type, body)
+
+    except Exception as e:
+        print(e)
 
 def de_active_current_record(topic_type: str, data: dict) -> None:
     try:
@@ -262,56 +313,6 @@ def insert_new_record(topic_type: str, data: dict) -> None:
         print(f'3. Inserted new {topic_type} record')
 
         return None
-    except Exception as e:
-        print(e)
-
-def dim_stream_data() -> None:
-    try:
-        while True:
-            msg = consumer.poll(timeout=1.0)
-            if msg is None:
-                continue
-            if msg.error():
-                print("Consumer error: {}".format(msg.error()))
-                continue
-
-            # Decode message
-            msg_str = msg.value().decode('utf-8')
-            data = json.loads(msg_str)
-
-            # Get topic, user_id, timestamp
-            topic = msg.topic()
-            topic_type  = data['topic_type']
-            emp_id      = data['emp_id']
-            body        = data['body']
-            timestamp = body['timestamp'].replace(':', '-')
-            date_key  = timestamp.split('T')[0]
-
-            # Generate object key
-            object_key = f"dim/{date_key}/{topic}/{emp_id}_{timestamp}.json"
-
-            # Upload to MinIO
-            s3.put_object(
-                Bucket=bucket_name,
-                Key=object_key,
-                Body=msg_str.encode('utf-8'),
-                ContentType='application/json'
-            )
-
-            print('\n')
-            print('1. Received message {topic}: {topic_type}')
-            print(f"2. Uploaded {object_key} to minIO")
-
-            if topic == 'create':
-                insert_new_record(topic_type, body)
-
-            if topic == 'update':
-                de_active_current_record(topic_type, body)
-                insert_new_record(topic_type, body)
-
-            if topic == 'delete':
-                de_active_current_record(topic_type, body)
-
     except Exception as e:
         print(e)
 

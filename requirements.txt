@@ -7,3 +7,5 @@ python-dotenv
 apache-airflow
 psycopg2-binary
 pandas
+prophet
+scikit-learn
