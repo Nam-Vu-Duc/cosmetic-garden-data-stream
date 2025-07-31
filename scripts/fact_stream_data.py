@@ -197,4 +197,4 @@ def insert_new_record(topic, data) -> None:
         print(e)
 
 if __name__ == '__main__':
-    fact_create_topics()
+    fact_stream_data()
