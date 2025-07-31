@@ -18,7 +18,7 @@ topics = [
 admin_client = AdminClient({'bootstrap.servers': 'localhost:9092'})
 consumer = Consumer({
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'dim-group1',
+    'group.id': 'dim-group3',
     'auto.offset.reset': 'earliest'
 })
 consumer.subscribe(topics)
@@ -79,12 +79,14 @@ def dim_stream_data() -> None:
             msg_str = msg.value().decode('utf-8')
             data = json.loads(msg_str)
 
+            print(data)
+
             # Get topic, user_id, timestamp
             topic = msg.topic()
             topic_type  = data['topic_type']
-            emp_id      = data['emp_id']
+            emp_id      = data.get('emp_id', '')
             body        = data['body']
-            timestamp = body['timestamp'].replace(':', '-')
+            timestamp = body['updatedAt'].replace(':', '-')
             date_key  = timestamp.split('T')[0]
 
             # Generate object key
@@ -125,7 +127,7 @@ def de_active_current_record(topic_type: str, data: dict) -> None:
                 WHERE id = %s AND is_current = TRUE
             """, (str(data['_id']),))
             conn.commit()
-            return
+            return None
 
         if topic_type == 'product':
             cur.execute("""
@@ -134,7 +136,7 @@ def de_active_current_record(topic_type: str, data: dict) -> None:
                 WHERE id = %s AND is_current = TRUE
             """, (str(data['_id']),))
             conn.commit()
-            return
+            return None
 
         if topic_type == 'brand':
             cur.execute("""
@@ -143,7 +145,7 @@ def de_active_current_record(topic_type: str, data: dict) -> None:
                 WHERE id = %s AND is_current = TRUE
             """, (str(data['_id']),))
             conn.commit()
-            return
+            return None
 
         if topic_type == 'order':
             cur.execute("""
@@ -152,7 +154,7 @@ def de_active_current_record(topic_type: str, data: dict) -> None:
                 WHERE id = %s AND is_current = TRUE
             """, (str(data['_id']),))
             conn.commit()
-            return
+            return None
 
         print(f'3. Deactivated current {topic_type} record')
 
@@ -206,7 +208,7 @@ def insert_new_record(topic_type: str, data: dict) -> None:
                 """, (new_user_sk, str(data['_id'])))
 
             conn.commit()
-            return
+            return None
 
         if topic_type == 'product':
             cur.execute("""
@@ -253,7 +255,7 @@ def insert_new_record(topic_type: str, data: dict) -> None:
                 """, (new_product_sk, str(data['_id'])))
 
             conn.commit()
-            return
+            return None
 
         if topic_type == 'brand':
             cur.execute("""
@@ -281,7 +283,7 @@ def insert_new_record(topic_type: str, data: dict) -> None:
             """, (new_brand_sk, str(data['_id'])))
 
             conn.commit()
-            return
+            return None
 
         if topic_type == 'order':
             cur.execute("""
@@ -311,10 +313,9 @@ def insert_new_record(topic_type: str, data: dict) -> None:
             conn.commit()
 
         print(f'3. Inserted new {topic_type} record')
-
         return None
     except Exception as e:
         print(e)
 
 if __name__ == '__main__':
-    dim_create_topics()
+    dim_stream_data()

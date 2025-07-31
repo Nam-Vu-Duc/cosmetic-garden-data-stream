@@ -131,46 +131,7 @@ def send_email(alert):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
-def run_login_flood_detection():
-    env = StreamExecutionEnvironment.get_execution_environment()
-    env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
-    env.set_parallelism(1) # Keep parallelism at 1 for simpler debugging, but can be scaled
-
-    # 1. Read file line-by-line
-    # Make sure 'login_events.json' exists in the same directory or provide full path
-    source = FileSource \
-        .for_record_stream_format(StreamFormat.text_line_format(), "events.json") \
-        .process_static_file_set() \
-        .build()
-
-    # Watermark strategy based on event time with 5 seconds of allowed lateness
-    # This is crucial for correct windowing/time-based logic in streaming
-    watermark_strategy = WatermarkStrategy \
-        .for_bounded_out_of_orderness(Duration.of_seconds(5)) \
-        .with_timestamp_assigner(JsonTimestampAssigner())
-
-    raw_stream = env.from_source(
-        source=source,
-        watermark_strategy=watermark_strategy,
-        source_name="file_source"
-    )
-
-    # 2. Key by user_id
-    keyed_stream = raw_stream.key_by(
-        lambda event_str: json.loads(event_str)["user_id"],
-        key_type=Types.STRING()
-    )
-
-    # 3. Apply login flood detection logic
-    # Output type is still a MAP for the alert
-    alerts = keyed_stream.process(LoginFloodDetector(), output_type=Types.MAP(Types.STRING(), Types.STRING()))
-
-    # 4. Print alerts
-    alerts.print()
-
-    env.execute("Login Flood Detection - PyFlink")
-
-def run_login_flood_detection_2():
+def detect_fraud():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
     env.set_parallelism(1)
@@ -178,8 +139,8 @@ def run_login_flood_detection_2():
     source = KafkaSource.builder() \
         .set_bootstrap_servers("localhost:9092") \
         .set_topics('auth-update') \
-        .set_group_id("flink_group5") \
-        .set_starting_offsets(KafkaOffsetsInitializer.latest()) \
+        .set_group_id("flink_group1") \
+        .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()
 
@@ -212,4 +173,4 @@ def run_login_flood_detection_2():
 
 # Call the main function to run the Flink job
 if __name__ == '__main__':
-    run_login_flood_detection_2()
+    detect_fraud()
