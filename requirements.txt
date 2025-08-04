@@ -4,9 +4,12 @@ boto3
 pymongo
 dotenv
 python-dotenv
-apache-airflow
 psycopg2-binary
 pandas
 prophet
 scikit-learn
 requests
+river
+numpy
+streamlit
+matplotlib
