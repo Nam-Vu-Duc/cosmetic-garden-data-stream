@@ -11,7 +11,6 @@ from pyflink.common import Types, Duration
 from pyflink.common import WatermarkStrategy, SimpleStringSchema
 from pyflink.common.watermark_strategy import TimestampAssigner
 from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
-from pyflink.datastream.connectors.file_system import FileSource, StreamFormat
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
 from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
 from pyflink.datastream.state import ValueStateDescriptor
@@ -59,13 +58,13 @@ class LoginFloodDetector(KeyedProcessFunction):
             timestamps.append(current_ts)
 
             # Define the time window for detection (5 minutes in milliseconds)
-            five_minutes_ms = 15 * 60 * 1000
+            minutes_ms = 15 * 60 * 1000
             threshold_logins = 3
 
             # Clean up old timestamps (older than 5 minutes from the current event)
             # Convert to deque for efficient removal from the front
             timestamps_deque = deque(timestamps)
-            while timestamps_deque and timestamps_deque[0] <= current_ts - five_minutes_ms:
+            while timestamps_deque and timestamps_deque[0] <= current_ts - minutes_ms:
                 timestamps_deque.popleft()
 
             # Update the state with the cleaned list
@@ -73,10 +72,10 @@ class LoginFloodDetector(KeyedProcessFunction):
 
             # Check for the flood condition
             if len(timestamps_deque) > threshold_logins and \
-                    (timestamps_deque[-1] - timestamps_deque[0] < five_minutes_ms):
+                    (timestamps_deque[-1] - timestamps_deque[0] < minutes_ms):
                 alert = {
                     "user_id": user_id,
-                    "alert": f"Login flood detected: {len(timestamps_deque)} logins in {five_minutes_ms / 1000 / 60} minutes."
+                    "alert": f"Login flood detected: {len(timestamps_deque)} logins in {minutes_ms / 1000 / 60} minutes."
                 }
                 print(alert)
                 send_email(alert)
@@ -100,7 +99,7 @@ def send_email(alert):
         body = f"""
             <html>
                 <body>
-                    <h2>Khách hàng {alert} nghi ngờ có dấu hiệu gian lận</h2>
+                    <h2>Khách hàng {alert['user_id']} đăng nhập nhiều lần trong thời gian ngắn</h2>
                     <p>Hãy liên hệ và kiểm tra thông tin khách hàng trên app để xử lý kịp thời</p>
                     <p>{alert}</p>
                 </body>
@@ -139,7 +138,7 @@ def detect_fraud():
     source = KafkaSource.builder() \
         .set_bootstrap_servers("localhost:9092") \
         .set_topics('auth-update') \
-        .set_group_id("flink_group1") \
+        .set_group_id("flink_group2") \
         .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()

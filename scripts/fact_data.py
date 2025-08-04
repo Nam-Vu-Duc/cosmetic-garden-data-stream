@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+
 import boto3
 import psycopg2
 from confluent_kafka import Consumer
@@ -55,7 +56,7 @@ def fact_create_topics() -> None:
             f.result()
             print(f"{topic} begin to start !!!")
         except Exception as e:
-            print(f"{topic} already start !!!")
+            print(e)
 
 def fact_stream_data() -> None:
     try:
@@ -89,7 +90,7 @@ def fact_stream_data() -> None:
             )
 
             print('\n')
-            print('1. Received message: {}'.format(msg.value().decode('utf-8')))
+            print(f'1. Received message: {msg_str}')
             print(f"2. Uploaded {object_key} to minIO")
 
             insert_new_record(topic, data)
@@ -197,4 +198,4 @@ def insert_new_record(topic, data) -> None:
         print(e)
 
 if __name__ == '__main__':
-    fact_stream_data()
+    fact_create_topics()
